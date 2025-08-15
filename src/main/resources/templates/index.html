@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Exile Notify</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .config-section {
+            border: 2px solid #007bff;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            background-color: #f8f9ff;
+        }
+        .message-container {
+            border: 2px solid #ddd;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+            min-height: 60px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        .btn {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 10px;
+        }
+        .btn:hover {
+            background-color: #0056b3;
+        }
+        .btn-secondary {
+            background-color: #6c757d;
+        }
+        .btn-secondary:hover {
+            background-color: #545b62;
+        }
+        .status {
+            color: #666;
+            font-style: italic;
+            margin-bottom: 10px;
+            padding: 5px 10px;
+            border-radius: 5px;
+        }
+        .status.connected {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.disconnected {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .trade-message {
+            color: #000;
+            font-weight: bold;
+            font-size: 16px;
+            padding: 10px;
+            background-color: #e7f3ff;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+        }
+        .current-path {
+            background-color: #e9ecef;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+            word-break: break-all;
+            margin-top: 10px;
+        }
+        .alert {
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+        .alert-success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .alert-danger {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎮 Exile Trade Notify</h1>
+        
+        <!-- Configuration Section -->
+        <div class="config-section">
+            <h3>📁 File Configuration</h3>
+            
+            <div th:if="${message}" class="alert" th:classappend="${messageType == 'success' ? 'alert-success' : 'alert-danger'}">
+                <span th:text="${message}"></span>
+            </div>
+            
+            <form method="post" th:action="@{/update-path}">
+                <div class="form-group">
+                    <label for="filePath">Path of Exile Client.txt file path:</label>
+                    <input type="text" id="filePath" name="filePath" th:value="${currentPath}" 
+                           placeholder="C:\Program Files (x86)\Steam\steamapps\common\Path of Exile\logs\Client.txt"
+                           required>
+                    <div class="current-path">
+                        <strong>Current path:</strong> <span th:text="${currentPath}"></span>
+                    </div>
+                </div>
+                <button type="submit" class="btn">💾 Update Path</button>
+                <button type="button" class="btn btn-secondary" onclick="useDefaultPath()">🔄 Use Default Path</button>
+            </form>
+        </div>
+
+        <!-- Status Section -->
+        <div class="message-container">
+            <div id="connectionStatus" class="status">🔌 Connecting to WebSocket...</div>
+            <div class="status">📊 File Watcher: <span th:text="${watcherStatus}"></span></div>
+            <div id="tradeMsg" class="trade-message" th:text="${tradeMsg != null ? tradeMsg : 'Waiting for messages...'}"></div>
+        </div>
+        
+        <form method="post" th:action="@{/}">
+            <button type="submit" class="btn btn-secondary">🔄 Refresh Status</button>
+        </form>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1.6.1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@stomp/stompjs@7.0.0/bundles/stomp.umd.min.js"></script>
+    <script>
+        let stompClient = null;
+
+        function connect() {
+            const socket = new SockJS('/ws');
+            stompClient = new StompJs.Client({
+                webSocketFactory: () => socket,
+                debug: (str) => console.log(str),
+                onConnect: (frame) => {
+                    console.log('Connected: ' + frame);
+                    document.getElementById('connectionStatus').textContent = '✅ Connected - Real-time updates active';
+                    document.getElementById('connectionStatus').className = 'status connected';
+                    
+                    stompClient.subscribe('/topic/trades', (message) => {
+                        const tradeMsg = message.body;
+                        console.log('Received trade message: ' + tradeMsg);
+                        
+                        const tradeMsgElement = document.getElementById('tradeMsg');
+                        tradeMsgElement.textContent = tradeMsg;
+                        
+                        tradeMsgElement.style.backgroundColor = '#d1ecf1';
+                        setTimeout(() => {
+                            tradeMsgElement.style.backgroundColor = '#e7f3ff';
+                        }, 2000);
+                    });
+                },
+                onDisconnect: () => {
+                    console.log('Disconnected');
+                    document.getElementById('connectionStatus').textContent = '❌ Disconnected from server';
+                    document.getElementById('connectionStatus').className = 'status disconnected';
+                },
+                onStompError: (frame) => {
+                    console.error('Broker reported error: ' + frame.headers['message']);
+                    console.error('Additional details: ' + frame.body);
+                    document.getElementById('connectionStatus').textContent = '⚠️ Connection error';
+                    document.getElementById('connectionStatus').className = 'status disconnected';
+                }
+            });
+
+            stompClient.activate();
+        }
+
+        function disconnect() {
+            if (stompClient !== null) {
+                stompClient.deactivate();
+            }
+            console.log('Disconnected');
+        }
+
+        function useDefaultPath() {
+            document.getElementById('filePath').value = 'C:\\Program Files (x86)\\Steam\\steamapps\\common\\Path of Exile\\logs\\Client.txt';
+        }
+
+        window.onload = function() {
+            console.log('Page loaded, connecting to WebSocket...');
+            connect();
+        };
+
+        window.onfocus = function() {
+            if (stompClient === null || !stompClient.connected) {
+                console.log('Window regained focus, attempting to reconnect...');
+                connect();
+            }
+        };
+
+        setInterval(function() {
+            if (stompClient === null || !stompClient.connected) {
+                console.log('Fallback: Refreshing page content...');
+                window.location.reload();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>

@@ -11,7 +11,20 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class FileParserService {
-    public String fileReader(File file) throws FileNotFoundException, IOException{
+    
+    public String getLastTradeMessage(File file) {
+        try {
+            String lastLine = fileReader(file);
+            if (lastLine != null) {
+                return fileRegexMatch(lastLine);
+            }
+        } catch (Exception e) {
+            return "Error" + e.getMessage();
+        }
+        return null;
+    }
+
+    private String fileReader(File file) throws FileNotFoundException, IOException {
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             long length = file.length() - 1;
             StringBuilder sb = new StringBuilder();
@@ -25,19 +38,11 @@ public class FileParserService {
                 sb.append((char) ch);
             }
 
-            String lastLine = sb.reverse().toString().trim();
-            return lastLine;
-
-        } catch (java.io.FileNotFoundException e) {
-            System.err.println("File Not found: " + e.getMessage());
-        } catch (java.io.IOException e) {
-            System.err.println("IO Exception: " + e.getMessage());
+            return sb.reverse().toString().trim();
         }
-
-        return null;
     }
 
-    public String fileRegexMatch(String lastLine) {
+    private String fileRegexMatch(String lastLine) {
         Pattern tradeRegex = Pattern.compile("@(From) ([^:]+): (.+)");
         Matcher matcher = tradeRegex.matcher(lastLine);
 
@@ -46,8 +51,7 @@ public class FileParserService {
             String username = matcher.group(2);
             String message = matcher.group(3);
 
-            String tradeMessage = String.format("%s %s: %s", from, username, message);
-            return tradeMessage;
+            return String.format("%s %s: %s", from, username, message);
         }
         return null;
     }
